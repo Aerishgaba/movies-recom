@@ -1,66 +1,79 @@
-import altair as alt
 import pandas as pd
+
+# Load the dataset
+data = pd.read_csv('/workspaces/movies-recom/data/imdb_movies.csv')
+
+# View the first few rows
+print(data.head())
+
+# Check for missing values
+print(data.isnull().sum())
+
+# Check data types
+print(data.dtypes)
+
+
+data = data.dropna(subset=['overview'])
+
+import re
+from nltk.corpus import stopwords
+import nltk
+nltk.download('stopwords')
+
+stop_words = set(stopwords.words('english'))
+
+def clean_text(text):
+    text = text.lower()  # Lowercase
+    text = re.sub(r'[^\w\s]', '', text)  # Remove punctuation
+    text = ' '.join(word for word in text.split() if word not in stop_words)  # Remove stop words
+    return text
+
+# Apply to the overview column
+data['overview_cleaned'] = data['overview'].apply(clean_text)
+
+
+data['features'] = data['overview_cleaned'] + ' ' + data['genre'].fillna('')
+
+from sklearn.feature_extraction.text import TfidfVectorizer
+
+# Initialize the vectorizer
+tfidf = TfidfVectorizer(min_df=3, ngram_range=(1, 2))
+
+# Fit and transform the features
+tfidf_matrix = tfidf.fit_transform(data['features'])
+
+
+from sklearn.metrics.pairwise import cosine_similarity
+
+# Compute the similarity matrix
+similarity_matrix = cosine_similarity(tfidf_matrix, tfidf_matrix)
+
+def recommend_movies(movie_title, data, similarity_matrix, top_n=5):
+    # Find the movie index
+    movie_idx = data[data['names'] == movie_title].index
+    if len(movie_idx) == 0:
+        return "Movie not found!"
+    
+    movie_idx = movie_idx[0]
+    
+    # Get similarity scores for this movie
+    sim_scores = list(enumerate(similarity_matrix[movie_idx]))
+    
+    # Sort by similarity (highest first) and exclude the movie itself
+    sim_scores = sorted(sim_scores, key=lambda x: x[1], reverse=True)[1:top_n+1]
+    
+    # Get movie titles
+    movie_indices = [i[0] for i in sim_scores]
+    return data['names'].iloc[movie_indices].tolist()
+
+
+
 import streamlit as st
 
-# Show the page title and description.
-st.set_page_config(page_title="Movies dataset", page_icon="🎬")
-st.title("🎬 Movies dataset")
-st.write(
-    """
-    This app visualizes data from [The Movie Database (TMDB)](https://www.kaggle.com/datasets/tmdb/tmdb-movie-metadata).
-    It shows which movie genre performed best at the box office over the years. Just 
-    click on the widgets below to explore!
-    """
-)
-
-
-# Load the data from a CSV. We're caching this so it doesn't reload every time the app
-# reruns (e.g. if the user interacts with the widgets).
-@st.cache_data
-def load_data():
-    df = pd.read_csv("data/movies_genres_summary.csv")
-    return df
-
-
-df = load_data()
-
-# Show a multiselect widget with the genres using `st.multiselect`.
-genres = st.multiselect(
-    "Genres",
-    df.genre.unique(),
-    ["Action", "Adventure", "Biography", "Comedy", "Drama", "Horror"],
-)
-
-# Show a slider widget with the years using `st.slider`.
-years = st.slider("Years", 1986, 2006, (2000, 2016))
-
-# Filter the dataframe based on the widget input and reshape it.
-df_filtered = df[(df["genre"].isin(genres)) & (df["year"].between(years[0], years[1]))]
-df_reshaped = df_filtered.pivot_table(
-    index="year", columns="genre", values="gross", aggfunc="sum", fill_value=0
-)
-df_reshaped = df_reshaped.sort_values(by="year", ascending=False)
-
-
-# Display the data as a table using `st.dataframe`.
-st.dataframe(
-    df_reshaped,
-    use_container_width=True,
-    column_config={"year": st.column_config.TextColumn("Year")},
-)
-
-# Display the data as an Altair chart using `st.altair_chart`.
-df_chart = pd.melt(
-    df_reshaped.reset_index(), id_vars="year", var_name="genre", value_name="gross"
-)
-chart = (
-    alt.Chart(df_chart)
-    .mark_line()
-    .encode(
-        x=alt.X("year:N", title="Year"),
-        y=alt.Y("gross:Q", title="Gross earnings ($)"),
-        color="genre:N",
-    )
-    .properties(height=320)
-)
-st.altair_chart(chart, use_container_width=True)
+st.title("Movie Recommendation System")
+movie_title = st.text_input("Enter a movie title:")
+if movie_title:
+    recommendations = recommend_movies(movie_title, data, similarity_matrix)
+    st.write("Recommended Movies:")
+    for movie in recommendations:
+        st.write(f"- {movie}")
