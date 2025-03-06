@@ -1,7 +1,7 @@
 import pandas as pd
 
 # Load the dataset
-data = pd.read_csv('/workspaces/movies-recom/data/imdb_movies.csv')
+data = pd.read_csv('data/imdb_movies.csv')
 
 # View the first few rows
 print(data.head())
